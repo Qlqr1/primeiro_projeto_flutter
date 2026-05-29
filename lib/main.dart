@@ -1,6 +1,39 @@
 import 'package:flutter/material.dart';
+import 'package:mask_text_input_formatter/mask_text_input_formatter.dart';
+import 'package:primeiro_projeto_flutter/dao/aluno.dart';
+import 'package:primeiro_projeto_flutter/model/aluno.dart';
+import 'dart:io';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 
 void main() {
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    // Chamar SQFLITE de um jeito
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  } else {
+    databaseFactory = databaseFactoryFfiWeb;
+  }
+
+  debugPrint("Cadastrando aluno...");
+  insert(
+    Aluno(
+      nome: "Heitor Scalco Neto",
+      telefone: "(55) 55555-5555",
+      matricula: "0123456789",
+    ),
+  );
+  debugPrint("Cadastrou aluno...");
+  findAll().then(
+    // Quando o futuro estiver pronto
+    (alunos) {
+      // Lista de alunos
+      for (Map aluno in alunos) {
+        debugPrint("Aluno: " + aluno.toString());
+      }
+    },
+  );
+
   runApp(MaterialApp(home: PaginaInicial(), debugShowCheckedModeBanner: false));
 }
 
@@ -22,98 +55,33 @@ class _PaginaInicialState extends State<PaginaInicial> {
         centerTitle: true,
         backgroundColor: Colors.blue,
       ),
-      body: SingleChildScrollView(
-        // Permite rolar a tela se houver muitos cards
-        child: Center(
-          child: Wrap(
-            spacing: 8.0, // Espaço horizontal entre os cards
-            runSpacing: 8.0, // Espaço vertical entre as linhas
-            alignment: WrapAlignment.start, // Alinha o bloco todo à esquerda
-            children: List.generate(alunos.length, (index) {
-              return Card(
-                elevation: 4,
-                margin: const EdgeInsets.all(8),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Container(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      IconButton(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) =>
-                                  TelaVsualizacao(alunos[index]),
-                            ),
-                          );
-                        },
-                        icon: Icon(Icons.people),
-                      ),
-                      const SizedBox(height: 8),
-                      Text("Nome: ${alunos[index].nome}"),
-                      const SizedBox(height: 4),
-                      Text("Telefone: ${alunos[index].telefone}"),
-                      const SizedBox(height: 4),
-                      Text("Matrícula: ${alunos[index].matricula}"),
-                      const SizedBox(height: 4),
-
-                      // Substituímos o Align por esta Row para não esticar o card
-                      Row(
-                        mainAxisSize: MainAxisSize.min, // Mantém a row pequena
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          // Se quiser que o botão fique realmente na direita,
-                          // precisamos de um pequeno "truque" de espaço se o texto for muito curto
-                          const SizedBox(width: 100),
-                          IconButton(
-                            icon: const Icon(
-                              Icons.delete_outline,
-                              color: Colors.redAccent,
-                            ),
-                            onPressed: () {
-                              showDialog(
-                                context: context,
-                                builder: (context) => AlertDialog(
-                                  title: const Text("Excluir aluno"),
-                                  content: Text(
-                                    "Tem certeza que quer excluir o aluno ${alunos[index].nome}?",
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(context),
-                                      child: const Text("Cancelar"),
-                                    ),
-                                    TextButton(
-                                      onPressed: () {
-                                        setState(() {
-                                          alunos.removeAt(index);
-                                        });
-                                        Navigator.pop(context);
-                                      },
-                                      child: const Text(
-                                        "Excluir",
-                                        style: TextStyle(color: Colors.red),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
+      body: FutureBuilder(
+        initialData: const [], // Inicia vazio
+        future: findAll(),
+        builder: (context, snapshot) {
+          switch (snapshot.connectionState) {
+            case ConnectionState.none:
+              break;
+            case ConnectionState.active:
+            case ConnectionState.waiting:
+              break;
+            case ConnectionState.done:
+              // Conexão finalizou e está ok
+              List<Map<String, dynamic>> alunos =
+                  snapshot.data as List<Map<String, dynamic>>;
+              return ListView.builder(
+                itemCount: alunos.length,
+                itemBuilder: (context, index) {
+                  return ListTile(
+                    title: Text(
+                      "Aluno: " + alunos[index]['nome'].toString(),
+                    ), // Tira o ['nome'] para aparecer tudo
+                  );
+                },
               );
-            }),
-          ),
-        ),
+          }
+          return (Text("Erro 2..."));
+        },
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
@@ -126,7 +94,7 @@ class _PaginaInicialState extends State<PaginaInicial> {
               alunos.add(aluno); //Adiciona o aluno na lista de alunos
             });
 
-            debugPrint("A informação recebida é: " + aluno.nome.toString());
+            debugPrint("A informação recebida é de: " + aluno.nome.toString());
           });
         },
         child: Icon(Icons.add),
@@ -142,6 +110,17 @@ class FormularioCadastro extends StatelessWidget {
     TextEditingController telefone = TextEditingController();
     TextEditingController matricula = TextEditingController();
 
+    // Definição das máscaras
+    var mascaraTelefone = MaskTextInputFormatter(
+      mask: '(##) #####-####',
+      filter: {"#": RegExp(r'[0-9]')}, // Aceita apenas números de 0 a 9
+    );
+
+    var mascaraMatricula = MaskTextInputFormatter(
+      mask: '##########', // 10 dígitos numéricos
+      filter: {"#": RegExp(r'[0-9]')},
+    );
+
     return Scaffold(
       appBar: AppBar(
         title: Text("Formulário"),
@@ -152,11 +131,21 @@ class FormularioCadastro extends StatelessWidget {
         padding: EdgeInsets.all(64.0),
         children: [
           Text("Nome:"),
-          TextFormField(controller: nome),
+          TextFormField(controller: nome, keyboardType: TextInputType.name),
           Text("Telefone:"),
-          TextFormField(controller: telefone),
+          TextFormField(
+            controller: telefone,
+            inputFormatters: [mascaraTelefone],
+            keyboardType: TextInputType.phone,
+            decoration: InputDecoration(hintText: "(DD) 9XXXX-XXXX"),
+          ),
           Text("Matrícula:"),
-          TextFormField(controller: matricula),
+          TextFormField(
+            controller: matricula,
+            inputFormatters: [mascaraMatricula],
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(hintText: "10 dígitos numéricos"),
+          ),
           Container(
             padding: EdgeInsets.all(64.0),
             child: ElevatedButton(
@@ -164,7 +153,11 @@ class FormularioCadastro extends StatelessWidget {
                 if (nome.text != '' &&
                     telefone.text != '' &&
                     matricula.text != '') {
-                  Aluno aluno = Aluno(nome.text, telefone.text, matricula.text);
+                  Aluno aluno = Aluno(
+                    nome: nome.text,
+                    telefone: telefone.text,
+                    matricula: matricula.text,
+                  );
                   Navigator.pop(context, aluno);
                 } else {
                   debugPrint("Preencha todos os campos!");
@@ -177,14 +170,6 @@ class FormularioCadastro extends StatelessWidget {
       ),
     );
   }
-}
-
-class Aluno {
-  String nome;
-  String telefone;
-  String matricula;
-
-  Aluno(this.nome, this.telefone, this.matricula);
 }
 
 class TelaVsualizacao extends StatelessWidget {
